@@ -1,0 +1,7 @@
+// lilSubShaderInsert で読み込まれるブロック
+// （Unity ライブラリと lil_common.hlsl の #include 直後、lil_pass_*.hlsl の直前に挿入）
+//
+// ジオメトリシェーダー（vertCustom / geomCustom）を定義する場合は
+// vert() の後に挿入が必要なため lilSubShaderInsertPost を使い
+// lilCustomShaderInsertPost.lilblock → custom_insert_post.hlsl に書くこと
+#include "custom_insert.hlsl"

@@ -1,0 +1,55 @@
+
+        //----------------------------------------------------------------------------------------------------------------------
+        // Custom Properties (MarbleEx)
+        // ここに追加したプロパティに対応する HLSL 変数を custom.hlsl の
+        // LIL_CUSTOM_PROPERTIES / LIL_CUSTOM_TEXTURES に定義すること
+        //
+        // よく使うアトリビュート:
+        //   [lilVec3]       : xyz を Vector3 として表示（w は表示しない）
+        //   [lilVec3Float]  : xyz を Vector3, w を Float として表示
+        //   [lilEnum]       : 整数をドロップダウンで表示  例: [lilEnum] _Mode ("Mode|A|B|C", Int) = 0
+        //   [lilToggle]     : 0/1 をトグルで表示
+        //   [NoScaleOffset] : テクスチャのタイリング・オフセット欄を非表示
+        //   [Normal]        : テクスチャを法線マップとして扱う
+        //   [HDR]           : カラーをHDR入力として扱う
+        //
+        // NOTE: [Toggle] はシェーダーキーワードを生成するため使用しない。
+        //       0/1 の Float として持ち、HLSL 側で if 分岐する。
+
+        // Common
+        [lilToggle]     _CustomMarbleEnable         ("Enable MarbleEx", Float) = 0
+        [lilEnum]       _CustomMarbleMode           ("Pattern|Marble|Aurora|Voronoi|Caustics", Float) = 0
+        [lilEnum]       _CustomMarbleUVMode         ("UV Mode|Main UV|Object Space|World Space", Float) = 0
+        // Mask（適用範囲の制御。タイリング・オフセットはメインUV基準で効く）
+                        _CustomMarbleMask           ("Mask", 2D) = "white" {}
+        [lilEnum]       _CustomMarbleMaskChannel    ("Mask Channel|R|G|B|A", Float) = 0
+        [lilToggle]     _CustomMarbleMaskInvert     ("Invert Mask", Float) = 0
+
+                        _CustomMarbleScale          ("Scale", Float) = 4.0
+                        _CustomMarbleSpeed          ("Speed", Float) = 0.5
+                        _CustomMarbleDetail         ("Detail (fBm Gain)", Range(0.0, 1.0)) = 0.5
+                        _CustomMarbleBlend          ("Blend", Range(0.0, 1.0)) = 1.0
+                        _CustomMarbleEmission       ("Emission", Range(0.0, 4.0)) = 0.0
+
+        // Palette
+        [HDR]           _CustomMarbleColor1         ("Color 1", Color) = (0.05, 0.05, 0.12, 1.0)
+        [HDR]           _CustomMarbleColor2         ("Color 2", Color) = (0.35, 0.20, 0.55, 1.0)
+        [HDR]           _CustomMarbleColor3         ("Color 3", Color) = (0.95, 0.92, 0.98, 1.0)
+
+        // Marble
+                        _CustomMarbleWarp           ("Warp Strength", Range(0.0, 4.0)) = 1.2
+                        _CustomMarbleVeinFreq       ("Vein Frequency", Range(0.0, 32.0)) = 8.0
+                        _CustomMarbleContrast       ("Contrast", Range(0.1, 4.0)) = 1.4
+
+        // Aurora
+                        _CustomAuroraStretch        ("Vertical Stretch", Range(1.0, 16.0)) = 5.0
+                        _CustomAuroraSharpness      ("Sharpness", Range(0.5, 8.0)) = 2.5
+
+        // Voronoi
+                        _CustomVoronoiEdge          ("Edge Width", Range(0.0, 0.5)) = 0.08
+                        _CustomVoronoiBreath        ("Breath", Range(0.0, 1.0)) = 0.7
+                        _CustomVoronoiCellVariation ("Cell Variation", Range(0.0, 1.0)) = 0.6
+
+        // Caustics
+                        _CustomCausticsSharpness    ("Sharpness", Range(0.5, 16.0)) = 1.0
+                        _CustomCausticsLayerScale   ("2nd Layer Scale", Range(0.5, 3.0)) = 1.4
