@@ -139,6 +139,34 @@ float lilCustomMaskChannel(float4 tex, int ch)
     return dot(tex, sel);
 }
 
+// 半透明マテリアルでアルファを持ち上げる際の重み（0..1）を返す。
+// 「模様のうち目立たせたい成分」をどう定義するかをモードで選ぶ。
+//   0: Off       … 常に 0（持ち上げなし）
+//   1: Saturation… HSV の S 相当。鮮やかな部分ほど不透明になる。
+//   2: Luminance … Rec.709 輝度。明るい部分ほど不透明になる。
+//   3: Pattern   … パターン強度そのもの。脈・カーテン・輪郭に素直に追従する。
+//
+// mode はマテリアル定数なので分岐は実行時に1経路へ畳まれる。
+float lilCustomAlphaDriver(float3 col, float intensity, int mode)
+{
+    float mx = max(col.r, max(col.g, col.b));
+    float mn = min(col.r, min(col.g, col.b));
+    // HDR カラーで mx が 1 を超えても S は 0..1 に収まる
+    float sat = (mx - mn) / max(mx, 1e-4);
+
+    // 輝度は HDR で 1 を超え得るため呼び出し側の saturate に任せる
+    float lum = dot(col, float3(0.2126, 0.7152, 0.0722));
+
+    float d = 0.0;
+
+    [branch]
+    if (mode == 1)      d = sat;
+    else if (mode == 2) d = lum;
+    else if (mode == 3) d = intensity;
+
+    return saturate(d);
+}
+
 //----------------------------------------------------------------------------------------------------------------------
 // パターン本体
 //

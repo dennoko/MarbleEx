@@ -12,8 +12,8 @@ namespace lilToon
         private const int ModeVoronoi  = 2;
         private const int ModeCaustics = 3;
 
-        // lilCustomShaderProperties.lilblock の UV Mode の並び順と一致させること
-        private const int UVModeObjectSpace = 1;
+        // lilCustomShaderProperties.lilblock の Alpha Boost の並び順と一致させること
+        private const int AlphaModeOff = 0;
 
         // Common
         MaterialProperty _CustomMarbleEnable;
@@ -27,6 +27,11 @@ namespace lilToon
         MaterialProperty _CustomMarbleDetail;
         MaterialProperty _CustomMarbleBlend;
         MaterialProperty _CustomMarbleEmission;
+
+        // Alpha Boost
+        MaterialProperty _CustomMarbleAlphaMode;
+        MaterialProperty _CustomMarbleAlphaBoost;
+        MaterialProperty _CustomMarbleAlphaContrast;
 
         // Palette
         MaterialProperty _CustomMarbleColor1;
@@ -72,6 +77,10 @@ namespace lilToon
             _CustomMarbleBlend          = FindProperty("_CustomMarbleBlend",          props);
             _CustomMarbleEmission       = FindProperty("_CustomMarbleEmission",       props);
 
+            _CustomMarbleAlphaMode      = FindProperty("_CustomMarbleAlphaMode",      props);
+            _CustomMarbleAlphaBoost     = FindProperty("_CustomMarbleAlphaBoost",     props);
+            _CustomMarbleAlphaContrast  = FindProperty("_CustomMarbleAlphaContrast",  props);
+
             _CustomMarbleColor1         = FindProperty("_CustomMarbleColor1",         props);
             _CustomMarbleColor2         = FindProperty("_CustomMarbleColor2",         props);
             _CustomMarbleColor3         = FindProperty("_CustomMarbleColor3",         props);
@@ -97,6 +106,29 @@ namespace lilToon
         {
             if (prop == null) return;
             m_MaterialEditor.ShaderProperty(prop, prop.displayName);
+        }
+
+        // Alpha Boost は LIL_RENDER == 2（アルファブレンド）でしか意味を持たない。
+        // Opaque では直前に fd.col.a = 1.0 が入り、Cutout では出力アルファが使われない。
+        // 誤警告を避けたいので、判定できない場合は「効く」側に倒している。
+        private static bool IsAlphaBlended(Material material)
+        {
+            if (material == null || material.shader == null) return true;
+
+            string name = material.shader.name;
+
+            // lilToonMulti は 1 本のシェーダーで全モードを賄うため _TransparentMode を見る
+            if (name.Contains("Multi"))
+            {
+                return material.HasProperty("_TransparentMode")
+                    && material.GetFloat("_TransparentMode") != 0.0f;
+            }
+
+            return name.Contains("Transparent")
+                || name.Contains("Overlay")
+                || name.Contains("Fur")
+                || name.Contains("Gem")
+                || name.Contains("Refraction");
         }
 
         protected override void DrawCustomProperties(Material material)
@@ -136,6 +168,28 @@ namespace lilToon
                 m_MaterialEditor.ShaderProperty(_CustomMarbleDetail, "Detail (fBm Gain)");
                 m_MaterialEditor.ShaderProperty(_CustomMarbleBlend,  "Blend");
                 m_MaterialEditor.ShaderProperty(_CustomMarbleEmission, "Emission");
+
+                DrawLine();
+
+                EditorGUILayout.LabelField("Alpha Boost", EditorStyles.boldLabel);
+                DrawEnum(_CustomMarbleAlphaMode);
+
+                bool alphaBoostOn = (int)_CustomMarbleAlphaMode.floatValue != AlphaModeOff;
+                using (new EditorGUI.DisabledScope(!alphaBoostOn))
+                {
+                    m_MaterialEditor.ShaderProperty(_CustomMarbleAlphaBoost,
+                        new GUIContent("Strength", "1 で該当部分が完全に不透明になる"));
+                    m_MaterialEditor.ShaderProperty(_CustomMarbleAlphaContrast,
+                        new GUIContent("Contrast", "大きいほど、選んだ成分が強い部分だけに絞られる"));
+                }
+
+                if (alphaBoostOn && !IsAlphaBlended(material))
+                {
+                    EditorGUILayout.HelpBox(
+                        "Alpha Boost はアルファブレンドを行う Rendering Mode（Transparent 系）でのみ効果があります。" +
+                        "現在のシェーダーは不透明 / Cutout のため出力アルファが使われません。",
+                        MessageType.Info);
+                }
 
                 DrawLine();
 
@@ -184,16 +238,6 @@ namespace lilToon
                         "Voronoi / Caustics は 1 ピクセルあたり 9 セルを走査します。Quest 向けには Scale を小さめにしてください。",
                         MessageType.Info);
                 }
-
-                // Lite 系は positionOS を v2f に載せられないため Object Space が機能しない
-                if ((int)_CustomMarbleUVMode.floatValue == UVModeObjectSpace &&
-                    material.shader != null && material.shader.name.Contains("Lite"))
-                {
-                    EditorGUILayout.HelpBox(
-                        "Lite 系シェーダーは Object Space 座標を持たないため、UV Mode = Object Space は機能しません。" +
-                        "World Space か Main UV を選ぶか、通常版シェーダーを使用してください。",
-                        MessageType.Warning);
-                }
             }
 
             EditorGUILayout.EndVertical();
@@ -214,10 +258,6 @@ namespace lilToon
             ltsoto      = Shader.Find("Hidden/" + shaderName + "/OnePassTransparentOutline");
             ltstto      = Shader.Find("Hidden/" + shaderName + "/TwoPassTransparentOutline");
 
-            ltsoo       = Shader.Find(shaderName + "/[Optional] OutlineOnly/Opaque");
-            ltscoo      = Shader.Find(shaderName + "/[Optional] OutlineOnly/Cutout");
-            ltstoo      = Shader.Find(shaderName + "/[Optional] OutlineOnly/Transparent");
-
             ltstess     = Shader.Find("Hidden/" + shaderName + "/Tessellation/Opaque");
             ltstessc    = Shader.Find("Hidden/" + shaderName + "/Tessellation/Cutout");
             ltstesst    = Shader.Find("Hidden/" + shaderName + "/Tessellation/Transparent");
@@ -230,39 +270,21 @@ namespace lilToon
             ltstessoto  = Shader.Find("Hidden/" + shaderName + "/Tessellation/OnePassTransparentOutline");
             ltstesstto  = Shader.Find("Hidden/" + shaderName + "/Tessellation/TwoPassTransparentOutline");
 
-            ltsl        = Shader.Find(shaderName + "/lilToonLite");
-            ltslc       = Shader.Find("Hidden/" + shaderName + "/Lite/Cutout");
-            ltslt       = Shader.Find("Hidden/" + shaderName + "/Lite/Transparent");
-            ltslot      = Shader.Find("Hidden/" + shaderName + "/Lite/OnePassTransparent");
-            ltsltt      = Shader.Find("Hidden/" + shaderName + "/Lite/TwoPassTransparent");
-
-            ltslo       = Shader.Find("Hidden/" + shaderName + "/Lite/OpaqueOutline");
-            ltslco      = Shader.Find("Hidden/" + shaderName + "/Lite/CutoutOutline");
-            ltslto      = Shader.Find("Hidden/" + shaderName + "/Lite/TransparentOutline");
-            ltsloto     = Shader.Find("Hidden/" + shaderName + "/Lite/OnePassTransparentOutline");
-            ltsltto     = Shader.Find("Hidden/" + shaderName + "/Lite/TwoPassTransparentOutline");
-
             ltsref      = Shader.Find("Hidden/" + shaderName + "/Refraction");
-            ltsrefb     = Shader.Find("Hidden/" + shaderName + "/RefractionBlur");
-            ltsfur      = Shader.Find("Hidden/" + shaderName + "/Fur");
-            ltsfurc     = Shader.Find("Hidden/" + shaderName + "/FurCutout");
-            ltsfurtwo   = Shader.Find("Hidden/" + shaderName + "/FurTwoPass");
-            ltsfuro     = Shader.Find(shaderName + "/[Optional] FurOnly/Transparent");
-            ltsfuroc    = Shader.Find(shaderName + "/[Optional] FurOnly/Cutout");
-            ltsfurotwo  = Shader.Find(shaderName + "/[Optional] FurOnly/TwoPass");
-            ltsgem      = Shader.Find("Hidden/" + shaderName + "/Gem");
-            ltsfs       = Shader.Find(shaderName + "/[Optional] FakeShadow");
 
             ltsover     = Shader.Find(shaderName + "/[Optional] Overlay");
             ltsoover    = Shader.Find(shaderName + "/[Optional] OverlayOnePass");
-            ltslover    = Shader.Find(shaderName + "/[Optional] LiteOverlay");
-            ltsloover   = Shader.Find(shaderName + "/[Optional] LiteOverlayOnePass");
 
-            ltsm        = Shader.Find(shaderName + "/lilToonMulti");
-            ltsmo       = Shader.Find("Hidden/" + shaderName + "/MultiOutline");
-            ltsmref     = Shader.Find("Hidden/" + shaderName + "/MultiRefraction");
-            ltsmfur     = Shader.Find("Hidden/" + shaderName + "/MultiFur");
-            ltsmgem     = Shader.Find("Hidden/" + shaderName + "/MultiGem");
+            // 以下のバリアントは .lilcontainer を用意していないため、あえて上書きしない。
+            // lilShaderManager.InitializeShaders() が入れた素の lilToon シェーダーが
+            // そのまま残るので、該当モードに切り替えると MarbleEx を失う代わりに
+            // マテリアルが壊れずに素の lilToon へフォールバックする。
+            //   Lite         : Quest 向け。Object Space UV 非対応かつ Voronoi/Caustics が実用外
+            //   Fur / FurOnly: パターンは乗るが需要が薄くパス数が多い
+            //   Gem          : lil_pass_forward_gem.hlsl が BEFORE_SHADOW を呼ばないため効果ゼロ
+            //   RefractionBlur / FakeShadow : 同上（refblur / fakeshadow パスに BEFORE_SHADOW が無い）
+            //   OutlineOnly  : [Optional] のニッチ用途
+            //   Multi        : キーワード分岐でバリアント数が最大になる
         }
     }
 }

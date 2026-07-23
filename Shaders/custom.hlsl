@@ -27,6 +27,9 @@
     float   _CustomMarbleDetail;        \
     float   _CustomMarbleBlend;         \
     float   _CustomMarbleEmission;      \
+    float   _CustomMarbleAlphaMode;     \
+    float   _CustomMarbleAlphaBoost;    \
+    float   _CustomMarbleAlphaContrast; \
     float   _CustomMarbleWarp;          \
     float   _CustomMarbleVeinFreq;      \
     float   _CustomMarbleContrast;      \
@@ -61,12 +64,11 @@
 // UV Mode の Object Space / World Space を成立させるために座標を v2f へ強制的に載せる。
 // キーワードを増やせない以上、モード選択を実行時に切り替えるには常時必要。
 //
-//   POSITION_WS: forward_normal では無条件に載るが、forward_lite では
-//                BRP のフォワードベースかつ LPPV 無しのとき載らないため強制が要る。
-//   POSITION_OS: forward_normal は FORCE で載る。
-//                forward_lite は positionOS を扱う経路自体が無いため載せられない。
-//                → Lite 系バリアントでは UV Mode = Object Space が機能しない。
-//                  CustomInspector 側で該当時に警告を出している。
+//   POSITION_WS: forward_normal では無条件に載るため FORCE は保険。
+//   POSITION_OS: forward_normal は FORCE を書かないと載らない。
+//
+// なお Lite 系バリアント（forward_lite）は positionOS を扱う経路が無く
+// UV Mode = Object Space が成立しないため、バリアント自体を提供していない。
 //
 // lilToon 2.3.4 に存在する FORCE マクロは
 // TEXCOORD0 / NORMAL / TANGENT / POSITION_OS / POSITION_WS の5種のみ（TEXCOORD1 は無い）。
@@ -97,6 +99,18 @@
 // マスクは常にメインUV基準（タイリング・オフセットは _CustomMarbleMask_ST で調整）。
 // パターン座標が Object / World Space でもマスクはメッシュに貼り付いたままにしたいため、
 // _mexUV とは独立してサンプリングしている。
+//
+// Alpha Boost について:
+//   半透明マテリアルで模様だけを不透明寄りにして視認性を上げる機能。
+//   fd.col.a を 1.0 側へ lerp するだけで、下げる方向には決して動かさない。
+//   （下げられると Rendering Mode 側の設定より薄くなり、事故になりやすいため）
+//
+//   BEFORE_SHADOW は lil_pass_forward_normal.hlsl / lil_pass_forward_lite.hlsl の
+//   どちらでも clip(fd.col.a - _Cutoff) より後に置かれている。したがって
+//     - ここでアルファを上げても ShadowCaster / DepthOnly 側の判定とズレない（クリップ済み）
+//     - 逆に、ベースのアルファが _Cutoff を下回るピクセルは既に捨てられているので
+//       持ち上げても復活しない。ベースを薄くしすぎないこと。
+//   また LIL_RENDER == 0（Opaque）では直前に fd.col.a = 1.0 が入るため効果は出ない。
 #define BEFORE_SHADOW \
     if (_CustomMarbleEnable > 0.5) \
     { \
@@ -111,9 +125,13 @@
             float _mexTime = LIL_TIME * _CustomMarbleSpeed; \
             float _mexIntensity; \
             float4 _mexPat = lilCustomMarbleExPattern(_mexUV, _mexTime, _mexAA, (int)_CustomMarbleMode, _mexIntensity); \
-            fd.col.rgb = lerp(fd.col.rgb, _mexPat.rgb, _mexAmount * _mexPat.a); \
+            float _mexCoverage = _mexAmount * _mexPat.a; \
+            fd.col.rgb = lerp(fd.col.rgb, _mexPat.rgb, _mexCoverage); \
             fd.albedo = fd.col.rgb; \
             fd.emissionColor += _mexPat.rgb * (_mexIntensity * _CustomMarbleEmission * _mexMask); \
+            float _mexAlphaW = lilCustomAlphaDriver(_mexPat.rgb, _mexIntensity, (int)_CustomMarbleAlphaMode); \
+            _mexAlphaW = pow(_mexAlphaW, _CustomMarbleAlphaContrast) * _CustomMarbleAlphaBoost * _mexCoverage; \
+            fd.col.a = lerp(fd.col.a, 1.0, saturate(_mexAlphaW)); \
         } \
     }
 

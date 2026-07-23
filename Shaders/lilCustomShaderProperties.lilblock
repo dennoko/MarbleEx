@@ -31,6 +31,12 @@
                         _CustomMarbleBlend          ("Blend", Range(0.0, 1.0)) = 1.0
                         _CustomMarbleEmission       ("Emission", Range(0.0, 4.0)) = 0.0
 
+        // Alpha Boost（半透明時に模様の部分だけ不透明側へ寄せて視認性を上げる。
+        //             Rendering Mode が Transparent 系のときのみ効く）
+        [lilEnum]       _CustomMarbleAlphaMode      ("Alpha Boost|Off|Saturation|Luminance|Pattern", Float) = 0
+                        _CustomMarbleAlphaBoost     ("Alpha Boost Strength", Range(0.0, 1.0)) = 1.0
+                        _CustomMarbleAlphaContrast  ("Alpha Boost Contrast", Range(0.1, 8.0)) = 1.0
+
         // Palette
         [HDR]           _CustomMarbleColor1         ("Color 1", Color) = (0.05, 0.05, 0.12, 1.0)
         [HDR]           _CustomMarbleColor2         ("Color 2", Color) = (0.35, 0.20, 0.55, 1.0)
