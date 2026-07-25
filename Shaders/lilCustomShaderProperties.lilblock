@@ -20,6 +20,8 @@
         [lilToggle]     _CustomMarbleEnable         ("Enable MarbleEx", Float) = 0
         [lilEnum]       _CustomMarbleMode           ("Pattern|Marble|Aurora|Voronoi|Caustics", Float) = 0
         [lilEnum]       _CustomMarbleUVMode         ("UV Mode|Main UV|Object Space|World Space", Float) = 0
+        // Blend Mode（Marble / Voronoi は Replace、Caustics / Aurora は Add が適切）
+        [lilEnum]       _CustomMarbleBlendMode      ("Blend Mode|Replace|Add|Screen", Float) = 0
         // Mask（適用範囲の制御。タイリング・オフセットはメインUV基準で効く）
                         _CustomMarbleMask           ("Mask", 2D) = "white" {}
         [lilEnum]       _CustomMarbleMaskChannel    ("Mask Channel|R|G|B|A", Float) = 0
@@ -57,5 +59,8 @@
                         _CustomVoronoiCellVariation ("Cell Variation", Range(0.0, 1.0)) = 0.6
 
         // Caustics
-                        _CustomCausticsSharpness    ("Sharpness", Range(0.5, 16.0)) = 1.0
-                        _CustomCausticsLayerScale   ("2nd Layer Scale", Range(0.5, 3.0)) = 1.4
+        // Sharpness は「線の細さ」= 1/線幅（セル単位）。値が大きいほど網目が細くなる。
+        // 2nd Layer Scale は 1.0 近傍にすると2層が干渉してモアレになるため下限を上げてある。
+                        _CustomCausticsSharpness    ("Sharpness", Range(2.0, 16.0)) = 7.0
+                        _CustomCausticsLayerScale   ("2nd Layer Scale", Range(1.1, 2.5)) = 1.6
+                        _CustomCausticsWarp         ("Water Warp", Range(0.0, 1.5)) = 0.5

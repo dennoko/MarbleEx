@@ -23,6 +23,34 @@
 #define LIL_MARBLEEX_MODE_CAUSTICS    3
 
 //----------------------------------------------------------------------------------------------------------------------
+// 合成方法（_CustomMarbleBlendMode の値と lilCustomShaderProperties.lilblock の [lilEnum] 順を一致させること）
+
+#define LIL_MARBLEEX_BLEND_REPLACE    0
+#define LIL_MARBLEEX_BLEND_ADD        1
+#define LIL_MARBLEEX_BLEND_SCREEN     2
+
+//----------------------------------------------------------------------------------------------------------------------
+// カースティクス専用の内部係数
+//
+// Scale / Speed は全モード共通のプロパティだが、カースティクスだけは
+// 必要な密度と速度のレンジが他モードと大きく違う。スライダーを他モードと
+// 同じ感覚で使えるようにするため、モード内部で倍率を掛けて辻褄を合わせる。
+//
+//   DENSITY: 網目として成立するには視界内に 8〜16 セル欲しい。
+//            共有 Scale の実用域（4〜6）× 2.5 でその範囲に収まる。
+//   TIME   : 見た目の速さを決めるのは母点の周回周期ではなく、
+//            「光の線が自分の線幅ぶん動く頻度」= きらめきの周波数。
+//            母点の周回角速度 ω = Speed × TIME、周回半径 0.5 セルなので
+//            母点速度は 0.5ω セル/秒、境界線はその約半分の 0.25ω セル/秒で動く。
+//            Sharpness 7 なら線幅 1/7 = 0.143 セルなので
+//              きらめき周波数 = 0.25ω / 0.143 ≒ 1.75ω [Hz]
+//            実際の水面は 1〜3 Hz なので、Speed 0.5 で中央の 1.75 Hz に
+//            乗る × 2 を採用する（Speed 0.3〜0.9 で 1〜3 Hz をカバー）。
+
+#define LIL_MARBLEEX_CAUSTICS_DENSITY 2.5
+#define LIL_MARBLEEX_CAUSTICS_TIME    2.0
+
+//----------------------------------------------------------------------------------------------------------------------
 // ノイズ基本関数
 //
 // ハッシュは sin() を使わない Hoskins 系を採用している。
@@ -167,6 +195,29 @@ float lilCustomAlphaDriver(float3 col, float intensity, int mode)
     return saturate(d);
 }
 
+// パターン色をベースカラーへ合成する。
+//   0: Replace … lerp でベースを置き換える。面全体を覆う模様（Marble / Voronoi）向け。
+//   1: Add     … 加算。水面越しに投影された光（Caustics / Aurora）はこちらが正しい。
+//                ベーステクスチャの質感を消さずに明るくなる。
+//   2: Screen  … スクリーン合成。加算より白飛びしにくく、明るいベースでも階調が残る。
+//
+// mode はマテリアル定数なので分岐は実行時に1経路へ畳まれる。
+float3 lilCustomBlendPattern(float3 base, float3 pat, float coverage, int mode)
+{
+    [branch]
+    if (mode == LIL_MARBLEEX_BLEND_ADD)
+    {
+        return base + pat * coverage;
+    }
+    else if (mode == LIL_MARBLEEX_BLEND_SCREEN)
+    {
+        // ベースが HDR で 1 を超える場合は (1-base) が負になり結果も 1 を超えるが、
+        // これは加算と同じ挙動なので意図通り。pat 側だけ saturate しておく。
+        return 1.0 - (1.0 - base) * (1.0 - saturate(pat * coverage));
+    }
+    return lerp(base, pat, coverage);
+}
+
 //----------------------------------------------------------------------------------------------------------------------
 // パターン本体
 //
@@ -261,19 +312,62 @@ float4 lilCustomPatternVoronoi(float2 uv, float t, float aa, float edgeWidth, fl
 }
 
 // 4. 水底のカースティクス
-//    逆方向にスクロールする2層のボロノイ F1 を pow で尖らせ、乗算して網目を作る。
-float4 lilCustomPatternCaustics(float2 uv, float t, float sharpness, float layerScale,
+//    セル境界（F2-F1）を光の網目として抽出し、逆方向にスクロールする2層を
+//    加算して交差点を輝かせる。
+//
+//    F1（母点までの距離）を明るさに使うとセル中心が明るい円形になり、
+//    網目ではなく水玉模様になってしまう。カースティクスの本質は光線が
+//    折り畳まれた「線状の集光」なので、距離そのものではなく境界を取る。
+//    また2層を乗算すると両層が同時に明るい交点しか残らず網目が途切れるため、
+//    加算で重ねて交差部だけが白く飽和するようにしている。
+//
+//    座標を低周波 fBm でドメインワープすることで、ボロノイそのままの
+//    直線的な多角形ではなく、水面のうねりに沿った有機的な網目になる。
+//
+// aa には呼び出し側で求めた UV の変化量を渡す。細い高輝度ラインは
+// AA 無しだと VR の遠景・傾いた面で激しくちらつくため必須。
+float4 lilCustomPatternCaustics(float2 uv, float t, float aa, float sharpness, float layerScale, float warp,
                                 float3 c1, float3 c2, float3 c3, out float intensity)
 {
-    // 水面のゆらぎは常に大きく動かしたいので母点の周回量は固定
-    float3 a = lilCustomVoronoi(uv + float2(t * 0.10, t * 0.07), t, 1.0);
-    float3 b = lilCustomVoronoi(uv * layerScale - float2(t * 0.08, t * 0.13), t * 1.3, 1.0);
+    float2 p = uv * LIL_MARBLEEX_CAUSTICS_DENSITY;
+    float paa = aa * LIL_MARBLEEX_CAUSTICS_DENSITY;
+    t *= LIL_MARBLEEX_CAUSTICS_TIME;
 
-    // 母点に近いほど明るい = 光の集束点
-    float ca = pow(saturate(1.0 - a.x), max(sharpness, 0.01));
-    float cb = pow(saturate(1.0 - b.x), max(sharpness, 0.01));
+    // 水面のうねり（低周波ドメインワープ）。warp は uniform なので実行時に畳まれる。
+    float2 q = p;
+    [branch]
+    if (warp > 0.0)
+    {
+        float2 w = float2(lilCustomFbm2(p * 0.5 + float2(t * 0.05, 0.0), 0.5),
+                          lilCustomFbm2(p * 0.5 + float2(5.2, 1.3) + float2(0.0, t * 0.04), 0.5)) * 2.0 - 1.0;
+        q = p + warp * w;
+    }
 
-    float caustics = saturate(ca * cb * 4.0);
+    // 水面のゆらぎは常に大きく動かしたいので母点の周回量は固定。
+    // 2層目は位相をずらして（+2.1）同じ呼吸が重ならないようにする。
+    float3 a = lilCustomVoronoi(q + float2(t * 0.10, t * 0.07), t, 1.0);
+    float3 b = lilCustomVoronoi(q * layerScale - float2(t * 0.08, t * 0.13), t * 1.3 + 2.1, 1.0);
+
+    // sharpness は「線の細さ」= 1/線幅（セル単位）。pow の指数にすると
+    // 応答が指数関数になりスライダーの大半が死ぬため、幅として線形に扱う。
+    //
+    // 線幅が 1 ピクセルを下回るとエイリアスするので下限を aa で押さえ、
+    // 広げた分だけ暗くしてエネルギーを保存する。これにより遠景では
+    // 白飛びせずパターンの平均輝度へ収束する（ミップマップ相当の挙動）。
+    //
+    // 下限 2.0 はスライダーの下限と揃えてある。これは 0 除算避けだけでなく、
+    // 旧バージョン（Sharpness が pow の指数で既定 1.0）で作られたマテリアルが
+    // 線幅 1.0 セル = 全面白のまま表示されるのを防ぐ役割も持つ。
+    float w0  = 1.0 / max(sharpness, 2.0);
+    float wid = max(w0, paa * 1.5);
+    float dim = w0 / wid;
+    float inv = 1.0 / wid;
+
+    float ea = saturate(1.0 - (a.y - a.x) * inv);
+    float eb = saturate(1.0 - (b.y - b.x) * inv);
+
+    // 二乗で芯を締め、加算で交差点を明るくする
+    float caustics = saturate((ea * ea + eb * eb) * dim);
 
     float3 col = lilCustomPalette3(caustics, c1, c2, c3);
     intensity = caustics;
@@ -318,7 +412,7 @@ float4 lilCustomMarbleExPattern(float2 uv, float t, float aa, int mode, out floa
     }
     else if (mode == LIL_MARBLEEX_MODE_CAUSTICS)
     {
-        result = lilCustomPatternCaustics(uv, t, _CustomCausticsSharpness, _CustomCausticsLayerScale, c1, c2, c3, intensity);
+        result = lilCustomPatternCaustics(uv, t, aa, _CustomCausticsSharpness, _CustomCausticsLayerScale, _CustomCausticsWarp, c1, c2, c3, intensity);
     }
     else
     {

@@ -12,6 +12,10 @@ namespace lilToon
         private const int ModeVoronoi  = 2;
         private const int ModeCaustics = 3;
 
+        // custom_insert.hlsl の LIL_MARBLEEX_BLEND_* と順序を一致させること
+        private const int BlendReplace = 0;
+        private const int BlendAdd     = 1;
+
         // lilCustomShaderProperties.lilblock の Alpha Boost の並び順と一致させること
         private const int AlphaModeOff = 0;
 
@@ -19,6 +23,7 @@ namespace lilToon
         MaterialProperty _CustomMarbleEnable;
         MaterialProperty _CustomMarbleMode;
         MaterialProperty _CustomMarbleUVMode;
+        MaterialProperty _CustomMarbleBlendMode;
         MaterialProperty _CustomMarbleMask;
         MaterialProperty _CustomMarbleMaskChannel;
         MaterialProperty _CustomMarbleMaskInvert;
@@ -55,6 +60,7 @@ namespace lilToon
         // Caustics
         MaterialProperty _CustomCausticsSharpness;
         MaterialProperty _CustomCausticsLayerScale;
+        MaterialProperty _CustomCausticsWarp;
 
         private static bool isShowMarbleExProperties;
         private const string shaderName = "dennokoworks/MarbleEx";
@@ -68,6 +74,7 @@ namespace lilToon
             _CustomMarbleEnable         = FindProperty("_CustomMarbleEnable",         props);
             _CustomMarbleMode           = FindProperty("_CustomMarbleMode",           props);
             _CustomMarbleUVMode         = FindProperty("_CustomMarbleUVMode",         props);
+            _CustomMarbleBlendMode      = FindProperty("_CustomMarbleBlendMode",      props);
             _CustomMarbleMask           = FindProperty("_CustomMarbleMask",           props);
             _CustomMarbleMaskChannel    = FindProperty("_CustomMarbleMaskChannel",    props);
             _CustomMarbleMaskInvert     = FindProperty("_CustomMarbleMaskInvert",     props);
@@ -98,6 +105,7 @@ namespace lilToon
 
             _CustomCausticsSharpness    = FindProperty("_CustomCausticsSharpness",    props);
             _CustomCausticsLayerScale   = FindProperty("_CustomCausticsLayerScale",   props);
+            _CustomCausticsWarp         = FindProperty("_CustomCausticsWarp",         props);
         }
 
         // [lilEnum] のドロップダウン項目は displayName の '|' 以降から作られる。
@@ -150,6 +158,26 @@ namespace lilToon
                 // .lilblock に書いた displayName（"Pattern|Marble|..."）をそのまま渡すこと。
                 DrawEnum(_CustomMarbleMode);
                 DrawEnum(_CustomMarbleUVMode);
+                DrawEnum(_CustomMarbleBlendMode);
+
+                // 投影された光の表現（Aurora / Caustics）を Replace で合成すると
+                // ベーステクスチャが消えて質感が失われる。既存マテリアルを勝手に
+                // 書き換えないよう、提案だけしてボタンで明示的に切り替えさせる。
+                int mode = (int)_CustomMarbleMode.floatValue;
+                bool wantsAdditive = mode == ModeCaustics || mode == ModeAurora;
+
+                if (wantsAdditive && (int)_CustomMarbleBlendMode.floatValue == BlendReplace)
+                {
+                    EditorGUILayout.HelpBox(
+                        "Aurora / Caustics は「外から投影された光」の表現です。Blend Mode を Add にすると、" +
+                        "ベーステクスチャの質感を残したまま光が乗ります。",
+                        MessageType.Info);
+
+                    if (GUILayout.Button("Blend Mode を Add に切り替える"))
+                    {
+                        _CustomMarbleBlendMode.floatValue = BlendAdd;
+                    }
+                }
 
                 DrawLine();
 
@@ -201,7 +229,6 @@ namespace lilToon
                 DrawLine();
 
                 // 選択中のパターンに関係するパラメーターだけを出す
-                int mode = (int)_CustomMarbleMode.floatValue;
                 switch (mode)
                 {
                     case ModeAurora:
@@ -219,8 +246,12 @@ namespace lilToon
 
                     case ModeCaustics:
                         EditorGUILayout.LabelField("Caustics", EditorStyles.boldLabel);
-                        m_MaterialEditor.ShaderProperty(_CustomCausticsSharpness,  "Sharpness");
-                        m_MaterialEditor.ShaderProperty(_CustomCausticsLayerScale, "2nd Layer Scale");
+                        m_MaterialEditor.ShaderProperty(_CustomCausticsSharpness,
+                            new GUIContent("Sharpness", "光の線の細さ。大きいほど網目が細くなる"));
+                        m_MaterialEditor.ShaderProperty(_CustomCausticsLayerScale,
+                            new GUIContent("2nd Layer Scale", "2層目の相対スケール。1.6 前後で干渉が自然になる"));
+                        m_MaterialEditor.ShaderProperty(_CustomCausticsWarp,
+                            new GUIContent("Water Warp", "水面のうねりによる歪み。0 で直線的な多角形、大きいほど有機的になる"));
                         break;
 
                     case ModeMarble:
@@ -234,9 +265,13 @@ namespace lilToon
 
                 if (mode == ModeVoronoi || mode == ModeCaustics)
                 {
-                    EditorGUILayout.HelpBox(
-                        "Voronoi / Caustics は 1 ピクセルあたり 9 セルを走査します。Quest 向けには Scale を小さめにしてください。",
-                        MessageType.Info);
+                    string perf = "Voronoi / Caustics は 1 ピクセルあたり 9 セルを走査します。Quest 向けには Scale を小さめにしてください。";
+                    if (mode == ModeCaustics)
+                    {
+                        perf += "\nCaustics は内部で密度を 2.5 倍しているため、Scale は 4〜6 が実用域です。" +
+                                "Quest 向けにはさらに Water Warp を 0 にするとノイズ 1 段分を省略できます。";
+                    }
+                    EditorGUILayout.HelpBox(perf, MessageType.Info);
                 }
             }
 

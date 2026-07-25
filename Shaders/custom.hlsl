@@ -22,6 +22,7 @@
     float   _CustomMarbleEnable;        \
     float   _CustomMarbleMode;          \
     float   _CustomMarbleUVMode;        \
+    float   _CustomMarbleBlendMode;     \
     float   _CustomMarbleScale;         \
     float   _CustomMarbleSpeed;         \
     float   _CustomMarbleDetail;        \
@@ -39,7 +40,8 @@
     float   _CustomVoronoiBreath;       \
     float   _CustomVoronoiCellVariation;\
     float   _CustomCausticsSharpness;   \
-    float   _CustomCausticsLayerScale;
+    float   _CustomCausticsLayerScale;  \
+    float   _CustomCausticsWarp;
 
 // Custom textures
 #define LIL_CUSTOM_TEXTURES \
@@ -100,6 +102,17 @@
 // パターン座標が Object / World Space でもマスクはメッシュに貼り付いたままにしたいため、
 // _mexUV とは独立してサンプリングしている。
 //
+// Blend Mode について:
+//   模様には性質の異なる2種類がある。
+//     - Marble / Voronoi … 素材そのものが模様である。ベースを置き換える Replace が正しい。
+//     - Caustics / Aurora … 外から投影された光である。ベーステクスチャを消してはいけないので
+//                           Add（加算）が正しい。Replace だと水底のタイルが光の網の下で
+//                           消えてしまい、質感が失われてノッペリする。
+//   Screen は Add の白飛びを避けたい場合の中間。
+//
+//   加算・スクリーンでは fd.col.rgb が 1 を超え得るが、この後の陰影計算は
+//   アルベドに対する乗算なので破綻しない（HDR カラーと同じ扱いになる）。
+//
 // Alpha Boost について:
 //   半透明マテリアルで模様だけを不透明寄りにして視認性を上げる機能。
 //   fd.col.a を 1.0 側へ lerp するだけで、下げる方向には決して動かさない。
@@ -126,7 +139,7 @@
             float _mexIntensity; \
             float4 _mexPat = lilCustomMarbleExPattern(_mexUV, _mexTime, _mexAA, (int)_CustomMarbleMode, _mexIntensity); \
             float _mexCoverage = _mexAmount * _mexPat.a; \
-            fd.col.rgb = lerp(fd.col.rgb, _mexPat.rgb, _mexCoverage); \
+            fd.col.rgb = lilCustomBlendPattern(fd.col.rgb, _mexPat.rgb, _mexCoverage, (int)_CustomMarbleBlendMode); \
             fd.albedo = fd.col.rgb; \
             fd.emissionColor += _mexPat.rgb * (_mexIntensity * _CustomMarbleEmission * _mexMask); \
             float _mexAlphaW = lilCustomAlphaDriver(_mexPat.rgb, _mexIntensity, (int)_CustomMarbleAlphaMode); \
